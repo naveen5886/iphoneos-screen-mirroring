@@ -30,6 +30,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h>
 
+#define CORE_ANIMATION_MAX_FRAMES_PER_SECOND (60)
+
 CGImageRef UIGetScreenImage(); // Not so private API anymore
 
 static CFTimeInterval startTime = 0;
@@ -46,21 +48,21 @@ static NSUInteger frames = 0;
 @implementation UIApplication (ScreenMirroring)
 
 static double targetFramesPerSecond = 0;
-static UIWindow *mainWindow = nil;
 static CADisplayLink *displayLink = nil;
 static UIScreen *mirroredScreen = nil;
 static UIWindow *mirroredScreenWindow = nil;
 static UIImageView *mirroredImageView = nil;
 
-- (void) setupScreenMirroringOfMainWindow:(UIWindow *)theMainWindow framesPerSecond:(double)fps
+- (void) setupScreenMirroring
+{
+	[self setupScreenMirroringWithFramesPerSecond:ScreenMirroringDefaultFramesPerSecond];
+}
+
+- (void) setupScreenMirroringWithFramesPerSecond:(double)fps
 {
 	// Set the desired frame rate
 	targetFramesPerSecond = fps;
-	
-	// Retain the main window to use for each loop update
-	[mainWindow release];
-	mainWindow = [theMainWindow retain];
-	
+
 	// Subscribe to screen notifications
 	NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
 	[center addObserver:self selector:@selector(screenDidConnect:) name:UIScreenDidConnectNotification object:nil]; 
@@ -83,8 +85,6 @@ static UIImageView *mirroredImageView = nil;
 
 - (void) disableScreenMirroring
 {
-	[mainWindow release], mainWindow = nil;
-	
 	// Subscribe to screen notifications
 	NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
 	[center removeObserver:self name:UIScreenDidConnectNotification object:nil];
@@ -124,7 +124,7 @@ static UIImageView *mirroredImageView = nil;
 #pragma mark Screen mirroring
 
 - (void) setupMirroringForScreen:(UIScreen *)anExternalScreen
-{	
+{       
 	// Reset timer
 	startTime = CFAbsoluteTimeGetCurrent();
 	frames = 0;
@@ -170,17 +170,18 @@ static UIImageView *mirroredImageView = nil;
 	
 	// Setup periodic callbacks
 	[displayLink invalidate];
-	[displayLink release];
-	displayLink = [[CADisplayLink displayLinkWithTarget:self selector:@selector(updateMirroredScreen)] retain];
-	CFTimeInterval maxFramesPerSecond = (1 / displayLink.duration);
-	[displayLink setFrameInterval:(targetFramesPerSecond >= maxFramesPerSecond) ? 1 : (maxFramesPerSecond / targetFramesPerSecond)]; // 30 fps
-	[displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+	[displayLink release], displayLink = nil;
+	
+	displayLink = [[CADisplayLink displayLinkWithTarget:self selector:@selector(updateMirroredScreenOnTimer)] retain];
+	[displayLink setFrameInterval:(targetFramesPerSecond >= CORE_ANIMATION_MAX_FRAMES_PER_SECOND) ? 1 : (CORE_ANIMATION_MAX_FRAMES_PER_SECOND / targetFramesPerSecond)];
+	[displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
 }
 
 - (void) disableMirroringOnCurrentScreen
 {
 	[displayLink invalidate];
 	[displayLink release], displayLink = nil;
+	
 	[mirroredScreen release], mirroredScreen = nil;
 	[mirroredScreenWindow release], mirroredScreenWindow = nil;
 	[mirroredImageView release], mirroredImageView = nil;
@@ -188,17 +189,6 @@ static UIImageView *mirroredImageView = nil;
 
 - (void) updateMirroredScreenOnTimer
 {
-	// Update image on external screen
-//	UIGraphicsBeginImageContext(mainWindow.bounds.size);
-//	[mainWindow.layer renderInContext:UIGraphicsGetCurrentContext()];
-//	mirroredImageView.image = UIGraphicsGetImageFromCurrentImageContext();
-//	mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI / 2);
-//	UIGraphicsEndImageContext();
-	
-//	if (++frames % 120 == 0) {
-//		NSLog(@"%f fps", ((double) frames) / (CFAbsoluteTimeGetCurrent() - startTime));
-//	}
-	
 	// Part of this code inspired by http://gist.github.com/119128
 	// Get a screenshot of the main window
 	CGImageRef mainWindowScreenshot = UIGetScreenImage();

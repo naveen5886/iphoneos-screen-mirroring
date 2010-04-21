@@ -27,9 +27,12 @@
 
 #import <UIKit/UIKit.h>
 
+#define ScreenMirroringDefaultFramesPerSecond (15)
+
 @interface UIApplication (ScreenMirroring)
 
-- (void) setupScreenMirroringOfMainWindow:(UIWindow *)theMainWindow framesPerSecond:(double)fps;
+- (void) setupScreenMirroring;
+- (void) setupScreenMirroringWithFramesPerSecond:(double)fps;
 - (void) disableScreenMirroring;
 
 @end
