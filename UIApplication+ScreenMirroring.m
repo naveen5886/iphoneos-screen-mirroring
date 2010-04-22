@@ -149,23 +149,33 @@ static UIImageView *mirroredImageView = nil;
 	mirroredScreen = [anExternalScreen retain];
 	
 	// Setup window in external screen
+//	UIWindow *newWindow = [[UIWindow alloc] initWithFrame:mirroredScreen.bounds];
+//	newWindow.opaque = YES;
+//	newWindow.backgroundColor = [UIColor blackColor];
+//	
+//	UIImageView *newMirroredImageView = [[UIImageView alloc] initWithFrame:mirroredScreen.bounds];
+//	newMirroredImageView.contentMode = UIViewContentModeScaleAspectFit;
+//	newMirroredImageView.opaque = YES;
+//	newMirroredImageView.backgroundColor = [UIColor blackColor];
+//	[newWindow addSubview:newMirroredImageView];
+//	[mirroredImageView release];
+//	mirroredImageView = [newMirroredImageView retain];
+//	[newMirroredImageView release];
+//	
+//	[mirroredScreenWindow release];
+//	mirroredScreenWindow = [newWindow retain];
+//	mirroredScreenWindow.screen = mirroredScreen;
+//	[newWindow makeKeyAndVisible];
+//	[newWindow release];
+	
 	UIWindow *newWindow = [[UIWindow alloc] initWithFrame:mirroredScreen.bounds];
 	newWindow.opaque = YES;
+	newWindow.hidden = NO;
 	newWindow.backgroundColor = [UIColor blackColor];
-	
-	UIImageView *newMirroredImageView = [[UIImageView alloc] initWithFrame:mirroredScreen.bounds];
-	newMirroredImageView.contentMode = UIViewContentModeScaleAspectFit;
-	newMirroredImageView.opaque = YES;
-	newMirroredImageView.backgroundColor = [UIColor blackColor];
-	[newWindow addSubview:newMirroredImageView];
-	[mirroredImageView release];
-	mirroredImageView = [newMirroredImageView retain];
-	[newMirroredImageView release];
-	
+	newWindow.layer.contentsGravity = kCAGravityResizeAspect;
 	[mirroredScreenWindow release];
 	mirroredScreenWindow = [newWindow retain];
 	mirroredScreenWindow.screen = mirroredScreen;
-	[newWindow makeKeyAndVisible];
 	[newWindow release];
 	
 	// Setup periodic callbacks
@@ -193,23 +203,40 @@ static UIImageView *mirroredImageView = nil;
 	// Get a screenshot of the main window
 	CGImageRef mainWindowScreenshot = UIGetScreenImage();
 	if (mainWindowScreenshot) {
-		UIImage *image = [[UIImage alloc] initWithCGImage:mainWindowScreenshot];
-		CFRelease(mainWindowScreenshot); // UIGetScreenImage does NOT respect retain / release semantics
+//		UIImage *image = [[UIImage alloc] initWithCGImage:mainWindowScreenshot];
+//		CFRelease(mainWindowScreenshot); // UIGetScreenImage does NOT respect retain / release semantics
+//		
+//		// Rotate the screenshot to match screen orientation
+//		if (self.statusBarOrientation == UIInterfaceOrientationPortrait) {
+//			mirroredImageView.transform = CGAffineTransformIdentity;
+//		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeLeft) {
+//			mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI / 2);
+//		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeRight) {
+//			mirroredImageView.transform = CGAffineTransformMakeRotation(-M_PI / 2);
+//		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortraitUpsideDown) {
+//			mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI);
+//		}
+//		
+//		// Output mirrored image to seconday screen
+//		mirroredImageView.image = image;
+//		[image release];
+		
+		// Grab the secondary window layer
+		CALayer *mirrorLayer = mirroredScreenWindow.layer;
+		
+		// Copy to secondary screen
+		mirrorLayer.contents = (id) mainWindowScreenshot;
 		
 		// Rotate the screenshot to match screen orientation
 		if (self.statusBarOrientation == UIInterfaceOrientationPortrait) {
-			mirroredImageView.transform = CGAffineTransformIdentity;
+			mirrorLayer.transform = CATransform3DIdentity;
 		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeLeft) {
-			mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI / 2);
+			mirrorLayer.transform = CATransform3DMakeRotation(M_PI / 2, 0.0f, 0.0f, 1.0f);
 		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeRight) {
-			mirroredImageView.transform = CGAffineTransformMakeRotation(-M_PI / 2);
+			mirrorLayer.transform = CATransform3DMakeRotation(-(M_PI / 2), 0.0f, 0.0f, 1.0f);
 		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortraitUpsideDown) {
-			mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI);
+			mirrorLayer.transform = CATransform3DMakeRotation(M_PI, 0.0f, 0.0f, 1.0f);
 		}
-		
-		// Output mirrored image to seconday screen
-		mirroredImageView.image = image;
-		[image release];
 	}
 }
 
