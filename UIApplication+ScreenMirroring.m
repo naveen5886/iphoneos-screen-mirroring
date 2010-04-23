@@ -237,6 +237,8 @@ static UIImageView *mirroredImageView = nil;
 		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortraitUpsideDown) {
 			mirrorLayer.transform = CATransform3DMakeRotation(M_PI, 0.0f, 0.0f, 1.0f);
 		}
+		
+		CFRelease(mainWindowScreenshot); // UIGetScreenImage does NOT respect retain / release semantics
 	}
 }
 
