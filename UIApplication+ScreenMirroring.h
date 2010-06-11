@@ -27,10 +27,15 @@
 
 #import <UIKit/UIKit.h>
 
-#define ScreenMirroringDefaultFramesPerSecond (15)
+extern NSString * const UIApplicationDidSetupScreenMirroringNotification;
+extern NSString * const UIApplicationDidDisableScreenMirroringNotification;
+
+static const NSUInteger ScreenMirroringDefaultFramesPerSecond = 15;
 
 @interface UIApplication (ScreenMirroring)
 
+- (BOOL) isScreenMirroringActive;
+- (UIScreen *) currentMirroringScreen;
 - (void) setupScreenMirroring;
 - (void) setupScreenMirroringWithFramesPerSecond:(double)fps;
 - (void) disableScreenMirroring;
