@@ -30,6 +30,10 @@
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h>
 
+NSString * const UIApplicationDidSetupScreenMirroringNotification = @"UIApplicationDidSetupScreenMirroringNotification";
+NSString * const UIApplicationDidDisableScreenMirroringNotification = @"UIApplicationDidDisableScreenMirroringNotification";
+
+// Assuming CA loops at 60.0 fps (which is true on iPhone OS 3 : iPhone, iPad...)
 #define CORE_ANIMATION_MAX_FRAMES_PER_SECOND (60)
 
 CGImageRef UIGetScreenImage(); // Not so private API anymore
@@ -41,7 +45,7 @@ static NSUInteger frames = 0;
 
 - (void) setupMirroringForScreen:(UIScreen *)anExternalScreen;
 - (void) disableMirroringOnCurrentScreen;
-- (void) updateMirroredScreenOnTimer;
+- (void) updateMirroredScreenOnDisplayLink;
 
 @end
 
@@ -53,6 +57,16 @@ static UIScreen *mirroredScreen = nil;
 static UIWindow *mirroredScreenWindow = nil;
 static UIImageView *mirroredImageView = nil;
 
+- (BOOL) isScreenMirroringActive
+{
+	return (displayLink && !displayLink.paused);
+}
+
+- (UIScreen *) currentMirroringScreen
+{
+	return mirroredScreen;
+}
+
 - (void) setupScreenMirroring
 {
 	[self setupScreenMirroringWithFramesPerSecond:ScreenMirroringDefaultFramesPerSecond];
@@ -63,11 +77,14 @@ static UIImageView *mirroredImageView = nil;
 	// Set the desired frame rate
 	targetFramesPerSecond = fps;
 
-	// Subscribe to screen notifications
+	// Register for screen notifications
 	NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
 	[center addObserver:self selector:@selector(screenDidConnect:) name:UIScreenDidConnectNotification object:nil]; 
 	[center addObserver:self selector:@selector(screenDidDisconnect:) name:UIScreenDidDisconnectNotification object:nil]; 
 	[center addObserver:self selector:@selector(screenModeDidChange:) name:UIScreenModeDidChangeNotification object:nil]; 
+	
+	// Register for interface orientation changes (so we don't need to query on every frame refresh)
+	[center addObserver:self selector:@selector(interfaceOrientationWillChange:) name:UIApplicationWillChangeStatusBarOrientationNotification object:nil];
 	
 	// Setup screen mirroring for an existing screen
 	NSArray *connectedScreens = [UIScreen screens];
@@ -85,11 +102,14 @@ static UIImageView *mirroredImageView = nil;
 
 - (void) disableScreenMirroring
 {
-	// Subscribe to screen notifications
+	// Unregister from screen notifications
 	NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
 	[center removeObserver:self name:UIScreenDidConnectNotification object:nil];
 	[center removeObserver:self name:UIScreenDidDisconnectNotification object:nil];
 	[center removeObserver:self name:UIScreenModeDidChangeNotification object:nil];
+	
+	// Device orientation
+	[center removeObserver:self name:UIApplicationWillChangeStatusBarOrientationNotification object:nil];
 	
 	// Remove mirroring
 	[self disableMirroringOnCurrentScreen];
@@ -121,6 +141,40 @@ static UIImageView *mirroredImageView = nil;
 }
 
 #pragma mark -
+#pragma mark Inteface orientation changes notification
+
+- (void) updateMirroredWindowTransformForInterfaceOrientation:(UIInterfaceOrientation)interfaceOrientation
+{
+	// Grab the secondary window layer
+	CALayer *mirrorLayer = mirroredScreenWindow.layer;
+	
+	// Rotate the screenshot to match interface orientation
+	switch (interfaceOrientation) {
+		case UIInterfaceOrientationPortrait:
+			mirrorLayer.transform = CATransform3DIdentity;
+			break;
+		case UIInterfaceOrientationLandscapeLeft:
+			mirrorLayer.transform = CATransform3DMakeRotation(M_PI / 2, 0.0f, 0.0f, 1.0f);
+			break;
+		case UIInterfaceOrientationLandscapeRight:
+			mirrorLayer.transform = CATransform3DMakeRotation(-(M_PI / 2), 0.0f, 0.0f, 1.0f);
+			break;
+		case UIInterfaceOrientationPortraitUpsideDown:
+			mirrorLayer.transform = CATransform3DMakeRotation(M_PI, 0.0f, 0.0f, 1.0f);
+			break;
+		default:
+			break;
+	}
+}
+
+- (void) interfaceOrientationWillChange:(NSNotification *)aNotification
+{
+	NSDictionary *userInfo = [aNotification userInfo];
+	UIInterfaceOrientation newInterfaceOrientation = (UIInterfaceOrientation) [[userInfo objectForKey:UIApplicationStatusBarOrientationUserInfoKey] unsignedIntegerValue];
+	[self updateMirroredWindowTransformForInterfaceOrientation:newInterfaceOrientation];
+}
+
+#pragma mark -
 #pragma mark Screen mirroring
 
 - (void) setupMirroringForScreen:(UIScreen *)anExternalScreen
@@ -148,26 +202,7 @@ static UIImageView *mirroredImageView = nil;
 	[mirroredScreen release];
 	mirroredScreen = [anExternalScreen retain];
 	
-	// Setup window in external screen
-//	UIWindow *newWindow = [[UIWindow alloc] initWithFrame:mirroredScreen.bounds];
-//	newWindow.opaque = YES;
-//	newWindow.backgroundColor = [UIColor blackColor];
-//	
-//	UIImageView *newMirroredImageView = [[UIImageView alloc] initWithFrame:mirroredScreen.bounds];
-//	newMirroredImageView.contentMode = UIViewContentModeScaleAspectFit;
-//	newMirroredImageView.opaque = YES;
-//	newMirroredImageView.backgroundColor = [UIColor blackColor];
-//	[newWindow addSubview:newMirroredImageView];
-//	[mirroredImageView release];
-//	mirroredImageView = [newMirroredImageView retain];
-//	[newMirroredImageView release];
-//	
-//	[mirroredScreenWindow release];
-//	mirroredScreenWindow = [newWindow retain];
-//	mirroredScreenWindow.screen = mirroredScreen;
-//	[newWindow makeKeyAndVisible];
-//	[newWindow release];
-	
+	// Setup window in external screen	
 	UIWindow *newWindow = [[UIWindow alloc] initWithFrame:mirroredScreen.bounds];
 	newWindow.opaque = YES;
 	newWindow.hidden = NO;
@@ -178,17 +213,31 @@ static UIImageView *mirroredImageView = nil;
 	mirroredScreenWindow.screen = mirroredScreen;
 	[newWindow release];
 	
+	// Apply transform on mirrored window to match device's interface orientation
+	[self updateMirroredWindowTransformForInterfaceOrientation:self.statusBarOrientation];
+	
 	// Setup periodic callbacks
 	[displayLink invalidate];
 	[displayLink release], displayLink = nil;
 	
-	displayLink = [[CADisplayLink displayLinkWithTarget:self selector:@selector(updateMirroredScreenOnTimer)] retain];
+	// Setup display link sync
+	displayLink = [[CADisplayLink displayLinkWithTarget:self selector:@selector(updateMirroredScreenOnDisplayLink)] retain];
 	[displayLink setFrameInterval:(targetFramesPerSecond >= CORE_ANIMATION_MAX_FRAMES_PER_SECOND) ? 1 : (CORE_ANIMATION_MAX_FRAMES_PER_SECOND / targetFramesPerSecond)];
+	
+	// We MUST add ourselves in the commons run loop in order to mirror during UITrackingRunLoopMode.
+	// Otherwise, the display won't be updated while fingering are touching the screen.
+	// This has a major impact on performance though...
 	[displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
+	
+	// Post notification advertisting that we're setting up mirroring for the external screen
+	[[NSNotificationCenter defaultCenter] postNotificationName:UIApplicationDidSetupScreenMirroringNotification object:anExternalScreen];
 }
 
 - (void) disableMirroringOnCurrentScreen
 {
+	// Post notification advertisting that we're tearing down mirroring
+	[[NSNotificationCenter defaultCenter] postNotificationName:UIApplicationDidDisableScreenMirroringNotification object:mirroredScreen];
+	
 	[displayLink invalidate];
 	[displayLink release], displayLink = nil;
 	
@@ -197,48 +246,15 @@ static UIImageView *mirroredImageView = nil;
 	[mirroredImageView release], mirroredImageView = nil;
 }
 
-- (void) updateMirroredScreenOnTimer
+- (void) updateMirroredScreenOnDisplayLink
 {
-	// Part of this code inspired by http://gist.github.com/119128
 	// Get a screenshot of the main window
 	CGImageRef mainWindowScreenshot = UIGetScreenImage();
 	if (mainWindowScreenshot) {
-//		UIImage *image = [[UIImage alloc] initWithCGImage:mainWindowScreenshot];
-//		CFRelease(mainWindowScreenshot); // UIGetScreenImage does NOT respect retain / release semantics
-//		
-//		// Rotate the screenshot to match screen orientation
-//		if (self.statusBarOrientation == UIInterfaceOrientationPortrait) {
-//			mirroredImageView.transform = CGAffineTransformIdentity;
-//		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeLeft) {
-//			mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI / 2);
-//		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeRight) {
-//			mirroredImageView.transform = CGAffineTransformMakeRotation(-M_PI / 2);
-//		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortraitUpsideDown) {
-//			mirroredImageView.transform = CGAffineTransformMakeRotation(M_PI);
-//		}
-//		
-//		// Output mirrored image to seconday screen
-//		mirroredImageView.image = image;
-//		[image release];
-		
-		// Grab the secondary window layer
-		CALayer *mirrorLayer = mirroredScreenWindow.layer;
-		
 		// Copy to secondary screen
-		mirrorLayer.contents = (id) mainWindowScreenshot;
-		
-		// Rotate the screenshot to match screen orientation
-		if (self.statusBarOrientation == UIInterfaceOrientationPortrait) {
-			mirrorLayer.transform = CATransform3DIdentity;
-		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeLeft) {
-			mirrorLayer.transform = CATransform3DMakeRotation(M_PI / 2, 0.0f, 0.0f, 1.0f);
-		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationLandscapeRight) {
-			mirrorLayer.transform = CATransform3DMakeRotation(-(M_PI / 2), 0.0f, 0.0f, 1.0f);
-		} else if ([UIApplication sharedApplication].statusBarOrientation == UIInterfaceOrientationPortraitUpsideDown) {
-			mirrorLayer.transform = CATransform3DMakeRotation(M_PI, 0.0f, 0.0f, 1.0f);
-		}
-		
-		CFRelease(mainWindowScreenshot); // UIGetScreenImage does NOT respect retain / release semantics
+		mirroredScreenWindow.layer.contents = (id) mainWindowScreenshot;
+		// Clean up as UIGetScreenImage does NOT respect retain / release semantics
+		CFRelease(mainWindowScreenshot); 
 	}
 }
 
